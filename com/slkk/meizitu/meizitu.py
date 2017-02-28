@@ -11,8 +11,8 @@ class Mzitu():
         return content
 
     def mkdir(self, path):
-        os.makedirs(os.path.join("D:\mzitu", path))
-        os.chdir("D:\mzitu\\" + path)
+        os.makedirs(os.path.join("E:\meizitu", path))
+        os.chdir("E:\meizitu\\" + path)
 
     def save(self, img, name):
         f = open(name + '.jpg', 'ab')
@@ -31,13 +31,13 @@ class Mzitu():
         return max_span
 
     def img(self, page_url):
-        img_html = requests(page_url)
+        img_html = self.request(page_url)
         # print(img_html.text)
         img_Soup = BeautifulSoup(img_html.text, 'lxml')
         img_href = img_Soup.find('div', class_='main-image').find('img')['src']
         # print(img_href)
         name = img_href[-9:-4]
-        img = requests(img_href)
+        img = self.request(img_href)
         return img, name
 
     def home(self, all_a):
