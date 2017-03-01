@@ -1,61 +1,81 @@
-import requests
 from bs4 import BeautifulSoup
 import os
+from load import request  ##导入模块变了一下
+from pymongo import MongoClient
+import datetime
 
 
-class Mzitu():
-    def request(self, url):
-        headers = {
-            'User-Agent': "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/22.0.1207.1 Safari/537.1"}
-        content = requests.get(url, headers=headers)
-        return content
+class mzitu():
+    def __init__(self):
+        client = MongoClient()  ##与MongDB建立连接（这是默认连接本地MongDB数据库）
+        db = client['meinvxiezhenji']  ## 选择一个数据库
+        self.meizitu_collection = db['meizitu']  ##在meizixiezhenji这个数据库中，选择一个集合
+        self.title = ''  ##用来保存页面主题
+        self.url = ''  ##用来保存页面地址
+        self.img_urls = []  ##初始化一个 列表  用来保存图片地址
 
-    def mkdir(self, path):
-        os.makedirs(os.path.join("E:\meizitu", path))
-        os.chdir("E:\meizitu\\" + path)
+    def all_url(self, url):
+        html = request.get(url, 3)
+        all_a = BeautifulSoup(html.text, 'lxml').find('div', class_='all').find_all('a')
+        for a in all_a:
+            title = a.get_text()
+            self.title = title  ##将主题保存到self.title中
+            print(u'开始保存：', title)
+            path = str(title).replace("?", '_')
+            self.mkdir(path)
+            os.chdir("D:\meizitu\\" + path)
+            href = a['href']
+            self.url = href  ##将页面地址保存到self.url中
+            if self.meizitu_collection.find_one({'主题页面': href}):  ##判断这个主题是否已经在数据库中、不在就运行else下的内容，在则忽略。
+                print(u'这个页面已经爬取过了')
+            else:
+                self.html(href)
 
-    def save(self, img, name):
+    def html(self, href):
+        html = request.get(href, 3)
+        max_span = BeautifulSoup(html.text, 'lxml').find_all('span')[10].get_text()
+        page_num = 0  ##这个当作计数器用 （用来判断图片是否下载完毕）
+        for page in range(1, int(max_span) + 1):
+            page_num = page_num + 1  ##每for循环一次就+1  （当page_num等于max_span的时候，就证明我们的在下载最后一张图片了）
+            page_url = href + '/' + str(page)
+            self.img(page_url, max_span, page_num)  ##把上面我们我们需要的两个变量，传递给下一个函数。
+
+    def img(self, page_url, max_span, page_num):  ##添加上面传递的参数
+        img_html = request.get(page_url, 3)
+        img_url = BeautifulSoup(img_html.text, 'lxml').find('div', class_='main-image').find('img')['src']
+        self.img_urls.append(img_url)  ##每一次 for page in range(1, int(max_span) + 1)获取到的图片地址都会添加到 img_urls这个初始化的列表
+        if int(max_span) == page_num:  ##我们传递下来的两个参数用上了 当max_span和Page_num相等时，就是最后一张图片了，最后一次下载图片并保存到数据库中。
+            self.save(img_url)
+            post = {  ##这是构造一个字典，里面有啥都是中文，很好理解吧！
+                '标题': self.title,
+                '主题页面': self.url,
+                '图片地址': self.img_urls,
+                '获取时间': datetime.datetime.now()
+            }
+            self.meizitu_collection.save(post)  ##将post中的内容写入数据库。
+            print(u'插入数据库成功')
+        else:  ##max_span 不等于 page_num执行这下面
+            self.save(img_url)
+
+    def save(self, img_url):
+        name = img_url[-9:-4]
+        print(u'开始保存：', img_url)
+        img = request.get(img_url, 3)
         f = open(name + '.jpg', 'ab')
         f.write(img.content)
         f.close()
 
-    def page(self, a, href):
-        html = self.request(href)
-        html_Soup = BeautifulSoup(html.text, 'lxml')
-        max_span = html_Soup.find('div', class_='pagenavi').find_all('span')[-2].get_text()
-        for page in range(1, int(max_span) + 1):
-            page_url = href + '/' + str(page)
-            # print(page_url)
-            img = self.img(page_url)
-            self.save(img[0], img[1])
-        return max_span
-
-    def img(self, page_url):
-        img_html = self.request(page_url)
-        # print(img_html.text)
-        img_Soup = BeautifulSoup(img_html.text, 'lxml')
-        img_href = img_Soup.find('div', class_='main-image').find('img')['src']
-        # print(img_href)
-        name = img_href[-9:-4]
-        img = self.request(img_href)
-        return img, name
-
-    def home(self, all_a):
-        for a in all_a:
-            title = a.get_text()
-            href = a['href']
-            path = str(title).strip()
-
-            self.mkdir(path)
-            self.page(a, href)
-
-    def all_url(self, url):
-        start_html = self.request(url)
-        Soup = BeautifulSoup(start_html.text, 'lxml')
-        all_a = Soup.find('div', class_='all').find_all('a')
-        self.home(all_a)
+    def mkdir(self, path):
+        path = path.strip()
+        isExists = os.path.exists(os.path.join("D:\meizitu", path))
+        if not isExists:
+            print(u'建了一个名字叫做', path, u'的文件夹！')
+            os.makedirs(os.path.join("D:\meizitu", path))
+            return True
+        else:
+            print(u'名字叫做', path, u'的文件夹已经存在了！')
+            return False
 
 
-all_url = 'http://www.mzitu.com/all'
-mzitu = Mzitu()
-mzitu.all_url(all_url)
+Mzitu = mzitu()  ##实例化
+Mzitu.all_url('http://www.mzitu.com/all')  ##给函数all_url传入参数  你可以当作启动爬虫（就是入口）
